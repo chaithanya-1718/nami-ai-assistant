@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>N.A.M.I AI</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#ff4da6" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>N.A.M.I</h1>
+      <button id="wakeBtn" onclick="toggleWakeMode()">Wake Mode: OFF</button>
+    </header>
+
+    <div class="orb-wrapper">
+      <div id="orb" class="orb"></div>
+      <p id="status">Systems Online. Tap mic or say "Hey Nami"</p>
+    </div>
+
+    <div id="chatBox" class="chat-box"></div>
+
+    <div class="controls">
+      <input type="text" id="userInput" placeholder="Talk to Nami..." />
+      <button onclick="sendMessage()">Send</button>
+      <button onclick="startListening()">🎤</button>
+      <label class="cam-btn">📷<input type="file" id="camInput" accept="image/*" capture="environment" hidden onchange="handleImage(event)" /></label>
+      <button onclick="clearMemory()">🗑️</button>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
