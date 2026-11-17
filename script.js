@@ -1,6 +1,6 @@
 let apiKey = localStorage.getItem("nami_api_key");
-if (!apiKey) {
-  apiKey = prompt("Enter your Gemini API Key:");
+if (!apiKey || apiKey === "null") {
+  apiKey = prompt("Enter your Gemini API Key from aistudio.google.com:");
   if (apiKey) localStorage.setItem("nami_api_key", apiKey.trim());
 }
 
@@ -8,7 +8,6 @@ let memory = JSON.parse(localStorage.getItem("nami_memory")) || [];
 let wakeMode = false;
 let selectedVoice = null;
 
-// Load and select the best natural female voice available on Android/Chrome
 function loadFemaleVoice() {
   const voices = speechSynthesis.getVoices();
   selectedVoice =
@@ -19,7 +18,6 @@ function loadFemaleVoice() {
 speechSynthesis.onvoiceschanged = loadFemaleVoice;
 loadFemaleVoice();
 
-// Nami's Personality System Prompt
 const NAMI_PERSONA = `You are Nami, a charming, witty, affectionate, and highly intelligent personal AI assistant. 
 Address the user warmly (e.g., "darling", "boss", or "love" naturally without overdoing it). 
 Keep spoken responses concise, playful, confident, and helpful (2-3 sentences max unless asked for details). Never use markdown symbols like asterisks in your replies.`;
@@ -29,8 +27,8 @@ function speak(text) {
   const cleanText = text.replace(/[*#_`]/g, "");
   const utterance = new SpeechSynthesisUtterance(cleanText);
   if (selectedVoice) utterance.voice = selectedVoice;
-  utterance.pitch = 1.18; // Slightly higher pitch for a sweeter, feminine tone
-  utterance.rate = 0.96;  // Smooth, alluring pacing
+  utterance.pitch = 1.18;
+  utterance.rate = 0.96;
   utterance.onstart = () => document.getElementById("orb").classList.add("speaking");
   utterance.onend = () => {
     document.getElementById("orb").classList.remove("speaking");
@@ -48,9 +46,17 @@ function addMessage(sender, text) {
   box.scrollTop = box.scrollHeight;
 }
 
-// Built-in Quick Tools (Episode 6)
 function checkTools(query) {
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().trim();
+  if (q === "reset key") {
+    const newKey = prompt("Paste your new Gemini API Key:");
+    if (newKey) {
+      apiKey = newKey.trim();
+      localStorage.setItem("nami_api_key", apiKey);
+      return "API key updated, darling. Try talking to me now!";
+    }
+    return "API key update cancelled.";
+  }
   if (q.includes("time")) {
     return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
   }
@@ -75,7 +81,6 @@ async function sendMessage(customText = null, imageBase64 = null) {
   input.value = "";
   document.getElementById("status").textContent = "Nami is thinking...";
 
-  // Check instant tools first
   if (!imageBase64) {
     const toolReply = checkTools(text);
     if (toolReply) {
@@ -84,6 +89,14 @@ async function sendMessage(customText = null, imageBase64 = null) {
       document.getElementById("status").textContent = "Ready";
       return;
     }
+  }
+
+  if (!apiKey || apiKey === "null") {
+    const errMsg = "I don't have your API key yet, love. Type 'reset key' and hit Send to add it.";
+    addMessage("nami", errMsg);
+    speak(errMsg);
+    document.getElementById("status").textContent = "Missing API Key";
+    return;
   }
 
   const userParts = [{ text: text || "Describe what you see in this image." }];
@@ -95,7 +108,7 @@ async function sendMessage(customText = null, imageBase64 = null) {
   if (memory.length > 12) memory = memory.slice(-12);
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -104,8 +117,16 @@ async function sendMessage(customText = null, imageBase64 = null) {
       })
     });
     const data = await res.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry love, my connection glitched for a second.";
-    
+
+    if (data.error) {
+      memory.pop();
+      const apiErr = `API Error (${data.error.code}): ${data.error.message}`;
+      addMessage("nami", apiErr);
+      document.getElementById("status").textContent = "API Error";
+      return;
+    }
+
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
     memory.push({ role: "model", parts: [{ text: reply }] });
     localStorage.setItem("nami_memory", JSON.stringify(memory));
 
@@ -113,11 +134,12 @@ async function sendMessage(customText = null, imageBase64 = null) {
     speak(reply);
     document.getElementById("status").textContent = "Ready";
   } catch (err) {
-    document.getElementById("status").textContent = "Error connecting to Gemini.";
+    memory.pop();
+    addMessage("nami", `Network Error: ${err.message}`);
+    document.getElementById("status").textContent = "Network Error";
   }
 }
 
-// Vision / Camera Input (Episode 5)
 function handleImage(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -129,7 +151,6 @@ function handleImage(event) {
   reader.readAsDataURL(file);
 }
 
-// Push-to-Talk Voice Input (Episode 4)
 function startListening() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) return alert("Speech recognition not supported in this browser.");
@@ -140,7 +161,6 @@ function startListening() {
   rec.start();
 }
 
-// Wake Word Mode: "Hey Nami" (Episode 9)
 function toggleWakeMode() {
   wakeMode = !wakeMode;
   document.getElementById("wakeBtn").textContent = `Wake Mode: ${wakeMode ? "ON" : "OFF"}`;
