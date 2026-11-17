@@ -1,4 +1,6 @@
 let apiKey = localStorage.getItem("nami_api_key");
+let groqKey = localStorage.getItem("nami_groq_key") || "";
+
 if (!apiKey || apiKey === "null") {
   apiKey = prompt("Enter your Gemini API Key from aistudio.google.com:");
   if (apiKey) localStorage.setItem("nami_api_key", apiKey.trim());
@@ -49,13 +51,22 @@ function addMessage(sender, text) {
 function checkTools(query) {
   const q = query.toLowerCase().trim();
   if (q === "reset key") {
-    const newKey = prompt("Paste your new Gemini API Key:");
+    const newKey = prompt("Paste your Gemini API Key:");
     if (newKey) {
       apiKey = newKey.trim();
       localStorage.setItem("nami_api_key", apiKey);
-      return "API key updated, darling. Try talking to me now!";
+      return "Gemini API key updated, darling!";
     }
-    return "API key update cancelled.";
+    return "Cancelled.";
+  }
+  if (q === "set groq") {
+    const gKey = prompt("Paste your free Groq API Key (from console.groq.com) as a 503 backup:");
+    if (gKey) {
+      groqKey = gKey.trim();
+      localStorage.setItem("nami_groq_key", groqKey);
+      return "Backup brain connected, love! I will never go offline on 503 errors now.";
+    }
+    return "Cancelled.";
   }
   if (q.includes("time")) {
     return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
@@ -72,32 +83,85 @@ function checkTools(query) {
   return null;
 }
 
-// Automatic fallback across models if one hits 503 overload
-async function fetchWithFallback(contentsPayload) {
-  const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Discover active Flash/Lite models on your key + retry on 503
+async function getAvailableModels() {
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const data = await res.json();
+    if (data.models) {
+      const valid = data.models
+        .filter(m => m.supportedGenerationMethods?.includes("generateContent") && /flash|lite|gemma/i.test(m.name))
+        .map(m => m.name.replace("models/", ""));
+      if (valid.length > 0) return valid;
+    }
+  } catch (e) {}
+  return ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemma-3-27b-it"];
+}
+
+async function callGroqBackup(userText) {
+  if (!groqKey) return null;
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${groqKey}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: NAMI_PERSONA },
+          { role: "user", content: userText }
+        ]
+      })
+    });
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchWithFallback(contentsPayload, rawUserText) {
+  const models = await getAvailableModels();
   let lastError = null;
 
   for (const model of models) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: NAMI_PERSONA }] },
-          contents: contentsPayload
-        })
-      });
-      const data = await res.json();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: NAMI_PERSONA }] },
+            contents: contentsPayload
+          })
+        });
+        const data = await res.json();
 
-      if (!data.error) return data;
-      lastError = data.error;
+        if (!data.error) return data;
+        lastError = { ...data.error, model };
 
-      // Retry next model if overloaded (503), rate-limited (429), or unavailable (404)
-      if (![503, 429, 404].includes(data.error.code)) break;
-    } catch (err) {
-      lastError = { code: "NET", message: err.message };
+        if (data.error.code === 503 && attempt === 0) {
+          await sleep(1500); // Wait 1.5s before retrying overloaded server
+          continue;
+        }
+        if ([503, 429, 404, 400].includes(data.error.code)) break;
+        return { error: lastError };
+      } catch (err) {
+        lastError = { code: "NET", message: err.message, model };
+      }
     }
   }
+
+  // If all Gemini models return 503, use Groq backup if configured
+  const groqReply = await callGroqBackup(rawUserText);
+  if (groqReply) {
+    return { candidates: [{ content: { parts: [{ text: groqReply }] } }] };
+  }
+
   return { error: lastError };
 }
 
@@ -136,11 +200,11 @@ async function sendMessage(customText = null, imageBase64 = null) {
   memory.push({ role: "user", parts: userParts });
   if (memory.length > 12) memory = memory.slice(-12);
 
-  const data = await fetchWithFallback(memory);
+  const data = await fetchWithFallback(memory, text);
 
   if (data.error) {
     memory.pop();
-    const apiErr = `API Error (${data.error.code}): ${data.error.message}`;
+    const apiErr = `API Error (${data.error.code} on ${data.error.model || "Gemini"}): ${data.error.message}\n\nTip: If Gemini servers are busy with 503, get a free key at console.groq.com, type 'set groq' here, and Nami will reply instantly.`;
     addMessage("nami", apiErr);
     document.getElementById("status").textContent = "API Error";
     return;
