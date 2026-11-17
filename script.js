@@ -40,36 +40,46 @@ function speak(text) {
 function addMessage(sender, text) {
   const box = document.getElementById("chatBox");
   const div = document.createElement("div");
-  div.className = `msg ${sender}`;
-  div.textContent = text;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
-}
-
-function checkTools(query) {
-  const q = query.toLowerCase().trim();
-  if (q === "reset key") {
-    const newKey = prompt("Paste your new Gemini API Key:");
-    if (newKey) {
-      apiKey = newKey.trim();
-      localStorage.setItem("nami_api_key", apiKey);
-      return "API key updated, darling. Try talking to me now!";
-    }
-    return "API key update cancelled.";
-  }
-  if (q.includes("time")) {
-    return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
+  div.className = `msg ${sender}`; div.textContent = text; box.appendChild(div); box.scrollTop = box.scrollHeight; }  function checkTools(query) { const q = query.toLowerCase().trim(); if (q === "reset key") { const newKey = prompt("Paste your new Gemini API Key:"); if (newKey) { apiKey = newKey.trim(); localStorage.setItem("nami_api_key", apiKey); return "API key updated, darling. Try talking to me now!"; } return "API key update cancelled."; } if (q.includes("time")) { return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
   }
   if (q.startsWith("play ")) {
     const song = q.replace("play ", "");
-    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(song)}`, "_blank");
-    return `Opening ${song} on YouTube for you.`;
+    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(song)}`, "_blank"); return `Opening ${song} on YouTube for you.`;
   }
   if (q.includes("open youtube")) {
     window.open("https://m.youtube.com", "_blank");
     return "Opening YouTube right away.";
   }
   return null;
+}
+
+// Automatic fallback across models if one hits 503 overload
+async function fetchWithFallback(contentsPayload) {
+  const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: NAMI_PERSONA }] },
+          contents: contentsPayload
+        })
+      });
+      const data = await res.json();
+
+      if (!data.error) return data;
+      lastError = data.error;
+
+      // Retry next model if overloaded (503), rate-limited (429), or unavailable (404)
+      if (![503, 429, 404].includes(data.error.code)) break;
+    } catch (err) {
+      lastError = { code: "NET", message: err.message };
+    }
+  }
+  return { error: lastError };
 }
 
 async function sendMessage(customText = null, imageBase64 = null) {
@@ -107,37 +117,23 @@ async function sendMessage(customText = null, imageBase64 = null) {
   memory.push({ role: "user", parts: userParts });
   if (memory.length > 12) memory = memory.slice(-12);
 
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: NAMI_PERSONA }] },
-        contents: memory
-      })
-    });
-    const data = await res.json();
+  const data = await fetchWithFallback(memory);
 
-    if (data.error) {
-      memory.pop();
-      const apiErr = `API Error (${data.error.code}): ${data.error.message}`;
-      addMessage("nami", apiErr);
-      document.getElementById("status").textContent = "API Error";
-      return;
-    }
-
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
-    memory.push({ role: "model", parts: [{ text: reply }] });
-    localStorage.setItem("nami_memory", JSON.stringify(memory));
-
-    addMessage("nami", reply);
-    speak(reply);
-    document.getElementById("status").textContent = "Ready";
-  } catch (err) {
+  if (data.error) {
     memory.pop();
-    addMessage("nami", `Network Error: ${err.message}`);
-    document.getElementById("status").textContent = "Network Error";
+    const apiErr = `API Error (${data.error.code}):${data.error.message}`;
+    addMessage("nami", apiErr);
+    document.getElementById("status").textContent = "API Error";
+    return;
   }
+
+  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
+  memory.push({ role: "model", parts: [{ text: reply }] });
+  localStorage.setItem("nami_memory", JSON.stringify(memory));
+
+  addMessage("nami", reply);
+  speak(reply);
+  document.getElementById("status").textContent = "Ready";
 }
 
 function handleImage(event) {
@@ -163,32 +159,5 @@ function startListening() {
 
 function toggleWakeMode() {
   wakeMode = !wakeMode;
-  document.getElementById("wakeBtn").textContent = `Wake Mode: ${wakeMode ? "ON" : "OFF"}`;
-  if (wakeMode) listenForWakeWord();
-}
-
-function listenForWakeWord() {
-  if (!wakeMode) return;
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const rec = new SpeechRecognition();
-  rec.lang = "en-US";
-  rec.onresult = (e) => {
-    const transcript = e.results[0][0].transcript.toLowerCase();
-    if (transcript.includes("nami")) {
-      const command = transcript.replace(/hey nami|nami/g, "").trim();
-      if (command) sendMessage(command);
-      else speak("Yes darling? I'm listening.");
-    } else if (wakeMode) {
-      listenForWakeWord();
-    }
-  };
-  rec.onend = () => { if (wakeMode) setTimeout(listenForWakeWord, 400); };
-  rec.start();
-}
-
-function clearMemory() {
-  memory = [];
-  localStorage.removeItem("nami_memory");
-  document.getElementById("chatBox").innerHTML = "";
-  speak("Memory wiped clean, sweetheart.");
-}
+  document.getElementById("wakeBtn").textContent = `Wake
+  
