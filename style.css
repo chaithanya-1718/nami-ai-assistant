@@ -1,0 +1,25 @@
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+body { background: #09040e; color: #f8e8f8; display: flex; justify-content: center; height: 100vh; }
+.container { width: 100%; max-width: 480px; display: flex; flex-direction: column; padding: 16px; }
+header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #3a1845; }
+h1 { color: #ff4da6; letter-spacing: 4px; font-size: 1.5rem; text-shadow: 0 0 10px #ff4da6; }
+#wakeBtn { background: #1f0d29; color: #ff85c2; border: 1px solid #ff4da6; padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; }
+.orb-wrapper { text-align: center; margin: 18px 0; }
+.orb {
+  width: 90px; height: 90px; margin: 0 auto 10px; border-radius: 50%;
+  background: radial-gradient(circle, #ff85c2, #a61c78, #1a0524);
+  box-shadow: 0 0 25px #ff4da6, 0 0 50px #8000ff;
+  animation: pulse 3s infinite ease-in-out;
+}
+.orb.speaking { animation: speakPulse 0.4s infinite alternate; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+@keyframes speakPulse { from { transform: scale(1); box-shadow: 0 0 20px #ff4da6; } to { transform: scale(1.18); box-shadow: 0 0 45px #ff99cc; } }
+#status { font-size: 0.85rem; color: #c79ad1; }
+.chat-box { flex: 1; overflow-y: auto; padding: 10px; background: #12081c; border-radius: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
+.msg { padding: 10px 14px; border-radius: 14px; max-width: 82%; font-size: 0.92rem; line-height: 1.4; }
+.user { align-self: flex-end; background: #3b154a; color: #fff; }
+.nami { align-self: flex-start; background: #1f0d2b; border: 1px solid #ff4da655; color: #ffd6eb; }
+.controls { display: flex; gap: 6px; }
+input[type="text"] { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #ff4da6; background: #160921; color: #fff; outline: none; }
+button, .cam-btn { background: #ff4da6; color: #09040e; border: none; padding: 10px 12px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+button:first-of-type { border-radius: 20px; padding: 10px 16px; }
