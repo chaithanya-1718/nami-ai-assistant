@@ -40,11 +40,30 @@ function speak(text) {
 function addMessage(sender, text) {
   const box = document.getElementById("chatBox");
   const div = document.createElement("div");
-  div.className = `msg ${sender}`; div.textContent = text; box.appendChild(div); box.scrollTop = box.scrollHeight; }  function checkTools(query) { const q = query.toLowerCase().trim(); if (q === "reset key") { const newKey = prompt("Paste your new Gemini API Key:"); if (newKey) { apiKey = newKey.trim(); localStorage.setItem("nami_api_key", apiKey); return "API key updated, darling. Try talking to me now!"; } return "API key update cancelled."; } if (q.includes("time")) { return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
+  div.className = `msg ${sender}`;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function checkTools(query) {
+  const q = query.toLowerCase().trim();
+  if (q === "reset key") {
+    const newKey = prompt("Paste your new Gemini API Key:");
+    if (newKey) {
+      apiKey = newKey.trim();
+      localStorage.setItem("nami_api_key", apiKey);
+      return "API key updated, darling. Try talking to me now!";
+    }
+    return "API key update cancelled.";
+  }
+  if (q.includes("time")) {
+    return `It's ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} right now.`;
   }
   if (q.startsWith("play ")) {
     const song = q.replace("play ", "");
-    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(song)}`, "_blank"); return `Opening ${song} on YouTube for you.`;
+    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(song)}`, "_blank");
+    return `Opening ${song} on YouTube for you.`;
   }
   if (q.includes("open youtube")) {
     window.open("https://m.youtube.com", "_blank");
@@ -121,7 +140,7 @@ async function sendMessage(customText = null, imageBase64 = null) {
 
   if (data.error) {
     memory.pop();
-    const apiErr = `API Error (${data.error.code}):${data.error.message}`;
+    const apiErr = `API Error (${data.error.code}): ${data.error.message}`;
     addMessage("nami", apiErr);
     document.getElementById("status").textContent = "API Error";
     return;
@@ -159,5 +178,32 @@ function startListening() {
 
 function toggleWakeMode() {
   wakeMode = !wakeMode;
-  document.getElementById("wakeBtn").textContent = `Wake
-  
+  document.getElementById("wakeBtn").textContent = `Wake Mode: ${wakeMode ? "ON" : "OFF"}`;
+  if (wakeMode) listenForWakeWord();
+}
+
+function listenForWakeWord() {
+  if (!wakeMode) return;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SpeechRecognition();
+  rec.lang = "en-US";
+  rec.onresult = (e) => {
+    const transcript = e.results[0][0].transcript.toLowerCase();
+    if (transcript.includes("nami")) {
+      const command = transcript.replace(/hey nami|nami/g, "").trim();
+      if (command) sendMessage(command);
+      else speak("Yes darling? I'm listening.");
+    } else if (wakeMode) {
+      listenForWakeWord();
+    }
+  };
+  rec.onend = () => { if (wakeMode) setTimeout(listenForWakeWord, 400); };
+  rec.start();
+}
+
+function clearMemory() {
+  memory = [];
+  localStorage.removeItem("nami_memory");
+  document.getElementById("chatBox").innerHTML = "";
+  speak("Memory wiped clean, sweetheart.");
+}
